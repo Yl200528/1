@@ -1,0 +1,82 @@
+# ===== Qt Creator user-specific project files =====
+*.pro.user
+*.pro.user.*
+*.qbs.user
+*.qbs.user.*
+CMakeLists.txt.user
+CMakeLists.txt.user.*
+*.moc
+moc_*.cpp
+moc_*.h
+moc_predefs.h
+qrc_*.cpp
+ui_*.h
+*.qmlc
+*.jsc
+
+# ===== Build directories and outputs =====
+build-*/
+build/
+debug/
+release/
+out/
+bin/
+obj/
+*.exe
+*.dll
+*.lib
+*.a
+*.so
+*.so.*
+*.o
+*.obj
+*.ilk
+*.pdb
+*.idb
+*.exp
+
+# ===== Qt / qmake generated files =====
+Makefile
+Makefile.Debug
+Makefile.Release
+.qmake.stash
+.qmake.cache
+*.qm
+*.qmltypes
+qmlcache/
+.qtc_clangd/
+
+# ===== CMake generated files =====
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+
+# ===== Windows system files =====
+Thumbs.db
+desktop.ini
+
+# ===== IDE / editor =====
+.vscode/
+.idea/
+.vs/
+*.swp
+*.swo
+*~
+*.user
+*.ipch
+*.sdf
+*.opensdf
+*.suo
+*.VC.db
+*.VC.VC.opendb
+
+# ===== macOS / Linux =====
+.DS_Store
+*.log
+*.tmp
+
+# ===== Env / Secrets =====
+.env
+.env.local
