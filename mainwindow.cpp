@@ -29,6 +29,10 @@ MainWindow::MainWindow(QWidget *parent)
     setupSerialPortUi(); // 初始化串口、波特率和校验位控件
     setupModbusUi(); // 初始化功能码、地址和写入参数控件
 
+    connect(ui->comboBox_funcCode, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this]() {
+                onModbusStateChanged(modbusClient ? modbusClient->state() : QModbusDevice::UnconnectedState);
+            });
     // 注意：此时 modbusClient 还是 nullptr，所以不会在这里直接连接信号。
     // 真正的连接绑定放在 connectModbus() 中，避免对象尚未创建时访问空指针。
 }
@@ -79,13 +83,13 @@ void MainWindow::setupSerialPortUi()
 
 void MainWindow::setupModbusUi()
 {
-    ui->comboBox_funcCode->addItem("01 读线圈", 1);
-    ui->comboBox_funcCode->addItem("02 读离散输入", 2);
-    ui->comboBox_funcCode->addItem("03 读保持寄存器", 3);
-    ui->comboBox_funcCode->addItem("04 读输入寄存器", 4);
-    ui->comboBox_funcCode->addItem("05 写单个线圈", 5);
-    ui->comboBox_funcCode->addItem("06 写单个寄存器", 6);
-    ui->comboBox_funcCode->addItem("10 写多个寄存器", 16);
+    ui->comboBox_funcCode->addItem("01 ", 1);
+    ui->comboBox_funcCode->addItem("02 ", 2);
+    ui->comboBox_funcCode->addItem("03 ", 3);
+    ui->comboBox_funcCode->addItem("04 ", 4);
+    ui->comboBox_funcCode->addItem("05 ", 5);
+    ui->comboBox_funcCode->addItem("06 ", 6);
+    ui->comboBox_funcCode->addItem("10 ", 16);
 
     ui->lineEdit_slaveId->setText("1"); // 默认从站地址为 1
     ui->lineEdit_startAddr->setText("0"); // 默认起始寄存器地址为 0
@@ -114,7 +118,7 @@ bool MainWindow::connectModbus()
     qDebug() << "========== 尝试连接 ==========";
     qDebug() << "当前协议:" << protocol;
 
-    if (protocol == "ASCII" || protocol == "ASCII文本")
+    if (protocol == "ASCII" || protocol == "文本模式")
         return connectAscii(); // ASCII 模式单独走串口逻辑，不走 QModbusClient
 
     // 2. 根据协议实例化不同的 Client
@@ -194,7 +198,10 @@ void MainWindow::onModbusStateChanged(int state)
     ui->comboBox_protocol->setEnabled(!connected);
 
     bool isTcp = (ui->comboBox_protocol->currentText() == "TCP");
+    bool isAsciiText = (ui->comboBox_protocol->currentText() == "文本模式");
 
+    int funcCode = ui->comboBox_funcCode->currentData().toInt();
+     bool isWriteFunc = (funcCode == 5 || funcCode == 6 || funcCode == 16);
     // 串口控件：RTU/ASCII 模式且未连接时才允许编辑
     ui->label_port->setEnabled(!isTcp && !connected);
     ui->comboBox_port->setEnabled(!isTcp && !connected);
@@ -212,6 +219,36 @@ void MainWindow::onModbusStateChanged(int state)
     ui->lineEdit_ip->setEnabled(isTcp && !connected);   // IP 输入框
     ui->label_3->setEnabled(isTcp && !connected);       // 端口标签
     ui->lineEdit_port->setEnabled(isTcp && !connected); // 端口输入框
+
+    if (!isAsciiText) {
+        // 正常 Modbus 模式且未连接：启用基础参数
+        ui->label_slaveId->setEnabled(true);
+        ui->lineEdit_slaveId->setEnabled(true);
+        ui->label_funcCode->setEnabled(true);
+        ui->comboBox_funcCode->setEnabled(true);
+        ui->label_startAddr->setEnabled(true);
+        ui->lineEdit_startAddr->setEnabled(true);
+
+        // 核心逻辑：读操作启用数量，写操作启用写入值
+        ui->label_quantity->setEnabled(!isWriteFunc);
+        ui->lineEdit_quantity->setEnabled(!isWriteFunc);
+
+        ui->label_writeValue->setEnabled(isWriteFunc);
+        ui->lineEdit_writeValue->setEnabled(isWriteFunc);
+    } else {
+        // 文本模式，或者已连接状态：Modbus 参数全部禁用
+        ui->label_slaveId->setEnabled(false);
+        ui->lineEdit_slaveId->setEnabled(false);
+        ui->label_funcCode->setEnabled(false);
+        ui->comboBox_funcCode->setEnabled(false);
+        ui->label_startAddr->setEnabled(false);
+        ui->lineEdit_startAddr->setEnabled(false);
+
+        ui->label_quantity->setEnabled(false);
+        ui->lineEdit_quantity->setEnabled(false);
+        ui->label_writeValue->setEnabled(false);
+        ui->lineEdit_writeValue->setEnabled(false);
+    }
 }
 
 void MainWindow::onModbusErrorOccurred(QModbusDevice::Error error)
@@ -227,10 +264,10 @@ void MainWindow::onProtocolChanged(int index)
 {
     Q_UNUSED(index);
 
-    const bool isAsciiText = ui->comboBox_protocol->currentText() == "ASCII文本";
+    const bool isAsciiText = ui->comboBox_protocol->currentText() == "文本模式";
     ui->label_writeValue->setText(isAsciiText ? "发送文本" : "写入值");
     ui->lineEdit_writeValue->setPlaceholderText(
-        isAsciiText ? "输入 ASCII 文本" : QString());
+        isAsciiText ? "输入  文本" : QString());
     ui->label_slaveId->setEnabled(!isAsciiText);
     ui->lineEdit_slaveId->setEnabled(!isAsciiText);
     ui->label_funcCode->setEnabled(!isAsciiText);
@@ -329,8 +366,8 @@ void MainWindow::onAsciiReadyRead()
     if (!asciiSerialPort)
         return;
     const QByteArray received = asciiSerialPort->readAll();
-    if (ui->comboBox_protocol->currentText() == "ASCII文本") {
-        // ASCII 文本模式不走 Modbus 解析，而是直接把字符原样显示在 RX 日志里。
+    if (ui->comboBox_protocol->currentText() == "文本模式") {
+        // 文本模式不走 Modbus 解析，而是直接把字符原样显示在 RX 日志里。
         logRx(QString("[%1] RX← %2")
                   .arg(QDateTime::currentDateTime().toString("HH:mm:ss.zzz"),
                        QString::fromLatin1(received)));
@@ -398,8 +435,7 @@ void MainWindow::handleAsciiResponse(const QByteArray &frame)
                                       ? static_cast<quint8>(payload.at(2))
                                       : -1;
         logRx(QString("[%1] Modbus 异常响应，异常码: %2")
-                  .arg(timeStr)
-                  .arg(exceptionCode < 0 ? QStringLiteral("无效") :
+                  .arg(timeStr,exceptionCode < 0 ? QStringLiteral("无效") :
                                            QString::number(exceptionCode, 16).toUpper()));
         return;
     }
@@ -592,7 +628,7 @@ bool MainWindow::parseInput(int &slaveId, int &funcCode, int &startAddr,
             QMessageBox::warning(this, "输入错误", "写多个寄存器时请用逗号分隔数据");
             return false;
         }
-        for (const QString &s : list) {
+        for (const QString &s : std::as_const(list)) {
             int v = s.trimmed().toInt(&ok);
             if (!ok || v < 0 || v > 65535) {
                 QMessageBox::warning(this, "输入错误", "写入值应为 0~65535 的整数");
@@ -629,7 +665,7 @@ void MainWindow::on_pushButton_openClose_clicked()
 // 这样可以在同一界面中统一调试不同底层协议，而不会让代码在多个分支里重复实现。
 void MainWindow::on_pushButton_send_clicked()
 {
-    if (ui->comboBox_protocol->currentText() == "ASCII文本") {
+    if (ui->comboBox_protocol->currentText() == "文本模式") {
         if (!asciiSerialPort || !asciiSerialPort->isOpen()) {
             QMessageBox::warning(this, "提示", "请先连接设备");
             return;
@@ -637,12 +673,12 @@ void MainWindow::on_pushButton_send_clicked()
 
         const QString text = ui->lineEdit_writeValue->text();
         if (text.isEmpty()) {
-            QMessageBox::warning(this, "提示", "请输入要发送的 ASCII 文本");
+            QMessageBox::warning(this, "提示", "请输入要发送的 文本");
             return;
         }
         for (const QChar character : text) {
             if (character.unicode() > 0x7F) {
-                QMessageBox::warning(this, "输入错误", "ASCII 文本只能包含 ASCII 字符");
+                QMessageBox::warning(this, "输入错误", " 文本只能包含 字符");
                 return;
             }
         }
@@ -722,10 +758,23 @@ void MainWindow::on_pushButton_send_clicked()
     }
 
     // 发送请求后，立即打印 TX 日志
-    const QByteArray txFrame = buildModbusRequestFrame(slaveId, funcCode, startAddr, itemCount, values);
+    QByteArray txFrameForLog = buildModbusRequestFrame(slaveId, funcCode, startAddr, itemCount, values);
+    if (ui->comboBox_protocol->currentText() == "TCP") {
+        txFrameForLog.chop(2);
+        QByteArray mbap;
+        mbap.append(static_cast<char>(0x00)); // 事务 ID 高
+        mbap.append(static_cast<char>(0x01)); // 事务 ID 低
+        mbap.append(static_cast<char>(0x00)); // 协议 ID 高
+        mbap.append(static_cast<char>(0x00)); // 协议 ID 低
+
+        quint16 len = txFrameForLog.size();
+        mbap.append(static_cast<char>(len >> 8)); // 长度高
+        mbap.append(static_cast<char>(len & 0xFF)); // 长度低
+        txFrameForLog = mbap + txFrameForLog;
+    }
+
     logTx(QString("[%1] TX→ %2")
-          .arg(QDateTime::currentDateTime().toString("HH:mm:ss.zzz"))
-          .arg(formatHexFrame(txFrame)));
+              .arg(QDateTime::currentDateTime().toString("HH:mm:ss.zzz"), formatHexFrame(txFrameForLog)));
 
     if (reply->isFinished()) {
         reply->deleteLater();
@@ -733,58 +782,83 @@ void MainWindow::on_pushButton_send_clicked()
     }
 
     // 连接完成信号，处理响应
-    connect(reply, &QModbusReply::finished, this, [this, reply, slaveId, funcCode]() {
+    connect(reply, &QModbusReply::finished, this, [this, reply, slaveId, funcCode, startAddr]() {
         if (reply->error() == QModbusDevice::NoError) {
             const QString timeStr = QDateTime::currentDateTime().toString("HH:mm:ss.zzz");
             const QModbusDataUnit unit = reply->result();
 
             QStringList declist;
-            QByteArray reconstructedFrame;
-            QByteArray strBuffer; // 用于字符串解析
+            QByteArray rxFrameForLog;
+            QByteArray dataBytes;
 
-            // 1. 还原报文头部
-            reconstructedFrame.append(static_cast<char>(slaveId));
-            reconstructedFrame.append(static_cast<char>(funcCode));
-            reconstructedFrame.append(static_cast<char>(unit.valueCount() * 2));
-
-            // 2. 遍历数据，还原报文和字符串
+            // 1. 遍历数据，提取数据字节和 Dec 列表
             for (uint i = 0; i < unit.valueCount(); ++i) {
                 quint16 val = unit.value(i);
-                reconstructedFrame.append(static_cast<char>(val >> 8));
-                reconstructedFrame.append(static_cast<char>(val & 0xFF));
-                declist.append(QString::number(val));
-
-                // 解析字符串（大端字序）
-                strBuffer.append(static_cast<char>(val >> 8));
-                strBuffer.append(static_cast<char>(val & 0xFF));
+                dataBytes.append(static_cast<char>(val >> 8));
+                dataBytes.append(static_cast<char>(val & 0xFF));
+                declist.append(QString("%1").arg(val, 4, 16, QChar('0')).toUpper());
             }
 
-            // 3. 根据协议处理日志和 CRC
-            QString rawText;
+            // 2. 根据协议拼接日志报文
+            bool isReadFunc = (funcCode >= 1 && funcCode <= 4);
+
             if (ui->comboBox_protocol->currentText() == "TCP") {
-                rawText = formatHexFrame(reconstructedFrame);
-                logRx(QString("[%1] RX← %2").arg(timeStr).arg(rawText));
+                // 模拟加上 MBAP 头
+                rxFrameForLog.append(static_cast<char>(0x00));
+                rxFrameForLog.append(static_cast<char>(0x01)); // 事务ID
+                rxFrameForLog.append(static_cast<char>(0x00));
+                rxFrameForLog.append(static_cast<char>(0x00)); // 协议ID
+
+                // 计算长度：从站ID(1) + 功能码(1) + PDU数据部分
+                int pduSize = isReadFunc ? (1 + dataBytes.size()) : (2 + dataBytes.size());
+                quint16 len = 1 + 1 + pduSize;
+
+                rxFrameForLog.append(static_cast<char>(len >> 8));
+                rxFrameForLog.append(static_cast<char>(len & 0xFF));
+                rxFrameForLog.append(static_cast<char>(slaveId)); // 单元标识符
+                rxFrameForLog.append(static_cast<char>(funcCode));
             } else {
-                if (reconstructedFrame.size() >= 2) {
-                    quint16 crc = crc16Modbus(reconstructedFrame);
-                    reconstructedFrame.append(static_cast<char>(crc & 0xFF));
-                    reconstructedFrame.append(static_cast<char>(crc >> 8));
-                }
-                rawText = formatHexFrame(reconstructedFrame);
-                logRx(QString("[%1] RX← %2").arg(timeStr).arg(rawText));
+                // RTU 模式头部
+                rxFrameForLog.append(static_cast<char>(slaveId));
+                rxFrameForLog.append(static_cast<char>(funcCode));
             }
+
+            // 拼接 PDU 数据区（区分读操作和写操作）
+            if (isReadFunc) {
+                rxFrameForLog.append(static_cast<char>(dataBytes.size())); // 读操作有字节数
+                rxFrameForLog.append(dataBytes);
+            } else if (funcCode == 5 || funcCode == 6) {
+                // 写单个：起始地址(2B) + 写入值(2B) ，没有字节数字段
+                rxFrameForLog.append(static_cast<char>(startAddr >> 8));
+                rxFrameForLog.append(static_cast<char>(startAddr & 0xFF));
+                rxFrameForLog.append(dataBytes);
+            } else if (funcCode == 16) {
+                // 写多个：起始地址(2B) + 数量(2B)
+                rxFrameForLog.append(static_cast<char>(startAddr >> 8));
+                rxFrameForLog.append(static_cast<char>(startAddr & 0xFF));
+                rxFrameForLog.append(static_cast<char>(unit.valueCount() >> 8));
+                rxFrameForLog.append(static_cast<char>(unit.valueCount() & 0xFF));
+            }
+
+            // 如果是 RTU 模式，最后补上 CRC
+            if (ui->comboBox_protocol->currentText() != "TCP") {
+                quint16 crc = crc16Modbus(rxFrameForLog);
+                rxFrameForLog.append(static_cast<char>(crc & 0xFF));
+                rxFrameForLog.append(static_cast<char>(crc >> 8));
+            }
+
+            // 3. 打印最终的 RX 日志（注意这里用的是 rxFrameForLog）
+            logRx(QString("[%1] RX← %2").arg(timeStr, formatHexFrame(rxFrameForLog)));
 
             // 4. 打印 Dec 日志
             logRx(QString("[%1] Dec: %2 %3 %4")
-                  .arg(timeStr)
-                  .arg(slaveId, 2, 16, QChar('0'))
-                  .arg(funcCode, 2, 16, QChar('0'))
-                  .arg(declist.join(" ")));
+                      .arg(timeStr)
+                      .arg(slaveId, 2, 16, QChar('0'))
+                      .arg(funcCode, 2, 16, QChar('0'))
+                      .arg(declist.join(" ")));
 
         } else {
-            logRx(QString("[%1] RX← %2")
-                  .arg(QDateTime::currentDateTime().toString("HH:mm:ss.zzz"))
-                  .arg(reply->errorString()));
+            logRx(QString("[%1] RX← %2").arg(QDateTime::currentDateTime().toString("HH:mm:ss.zzz"), reply->errorString()));
         }
         reply->deleteLater();
     });

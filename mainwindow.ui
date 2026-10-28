@@ -70,7 +70,7 @@
         </item>
         <item>
          <property name="text">
-          <string>ASCII文本</string>
+          <string>文本模式</string>
          </property>
         </item>
         <item>
