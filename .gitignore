@@ -1,4 +1,5 @@
 # ===== Qt Creator user-specific project files =====
+.qtcreator/
 *.pro.user
 *.pro.user.*
 *.qbs.user
